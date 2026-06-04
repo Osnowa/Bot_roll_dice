@@ -8,8 +8,8 @@ from config import DATABASE_URL
 
 # Создаем асинхронный движок для подключения к базе данных
 engine = create_async_engine(
-    DATABASE_URL, 
-    poll_size=5, # кол-во соединений в пуле
+    DATABASE_URL, # заменить на бд
+    pool_size=5, # кол-во соединений в пуле
     max_overflow=10, # кол-во дополнительных соединений, которые могут быть созданы при превышении размера пула
     pool_pre_ping=True, # проверка соединения перед использованием
     echo=False

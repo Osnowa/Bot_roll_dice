@@ -24,7 +24,7 @@ async def main():
     redis = Redis(host='localhost', port=6379, db=0, decode_responses=True)
     storage = RedisStorage(redis=redis)
 
-    bot = Bot(token=config.BOT_TOKEN, parse_mode='HTML')
+    bot = Bot(token=config.BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
     dp = Dispatcher(storage=storage)
 
     # Регистрируем роутеры
