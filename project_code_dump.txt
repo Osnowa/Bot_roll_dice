@@ -32,6 +32,10 @@ class Config:
     POSTGRES_DB: str = env.str("POSTGRES_DB")
     PGADMIN_DEFAULT_EMAIL: str = env.str("PGADMIN_DEFAULT_EMAIL")
     PGADMIN_DEFAULT_PASSWORD: str = env.str("PGADMIN_DEFAULT_PASSWORD")
+    DB_HOST: str = env.str("DB_HOST")
+    DB_PORT: int = env.int("DB_PORT")
+    REDIS_HOST: str = env.str("REDIS_HOST")
+    REDIS_PORT: int = env.int("REDIS_PORT")
 
 
 ================================================================================
@@ -285,6 +289,7 @@ from keyboards.menu import set_main_menu
 from database.db import create_tables, dispose_engine, SessionFactory
 from midleware.database import DatabaseMiddleware
 from handlers.hand_game import router as game_router
+from db_redis.redis_serv import redis_db
 
 logger = logging.getLogger(__name__)
 
@@ -296,10 +301,9 @@ async def main():
 
     config = Config()
 
-    redis = Redis(host='localhost', port=6379, db=0, decode_responses=True)
-    storage = RedisStorage(redis=redis)
+    storage = RedisStorage(redis=redis_db) # используем уже созданное соединение с Redis из redis_serv.py
 
-    bot = Bot(token=config.BOT_TOKEN, parse_mode='HTML')
+    bot = Bot(token=config.BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
     dp = Dispatcher(storage=storage)
 
     # Регистрируем роутеры
@@ -343,12 +347,14 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
 )
 from database.models import Base
-from config import DATABASE_URL
+from config import Config
+
+config = Config()
 
 # Создаем асинхронный движок для подключения к базе данных
 engine = create_async_engine(
-    DATABASE_URL, # заменить на бд
-    poll_size=5, # кол-во соединений в пуле
+    f"postgresql+asyncpg://{config.POSTGRES_USER}:{config.POSTGRES_PASSWORD}@{config.DB_HOST}:{config.DB_PORT}/{config.POSTGRES_DB}", # заменить на бд
+    pool_size=5, # кол-во соединений в пуле
     max_overflow=10, # кол-во дополнительных соединений, которые могут быть созданы при превышении размера пула
     pool_pre_ping=True, # проверка соединения перед использованием
     echo=False
@@ -375,7 +381,7 @@ async def dispose_engine():
 ФАЙЛ: /Users/ilasavin/VSCProjects/Bot_roll_dice/database/models.py
 ОТНОСИТЕЛЬНЫЙ ПУТЬ: database/models.py
 ================================================================================
-from sqlalchemy import BigInteger, func
+from sqlalchemy import BigInteger, func, Integer
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from datetime import datetime
 
@@ -386,9 +392,9 @@ class User(Base):
     '''Модель для хранения информации о пользователях'''
     __tablename__ = 'users'
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True) # ключ пользователя
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True) # ключ пользователя
     telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False) # id пользователя в Telegram
-    username: Mapped[str] = mapped_column(nullable=True) # имя пользователя в Telegram
+    username: Mapped[str| None] = mapped_column(nullable=True) # имя пользователя в Telegram
     all_game: Mapped[int] = mapped_column(default=0) # всего игр
     win_game: Mapped[int] = mapped_column(default=0) # выигранных игр
     lose_game: Mapped[int] = mapped_column(default=0) # проигранных игр
@@ -430,8 +436,19 @@ class UserRepository:
         await self.session.commit()
         await self.session.refresh(user) # обновляем данные пользователся, что бы вставить id, который был сгенерирован
 
-    # Добавить методы для обновления игры
-    
+    async def update_game_static(self, tg_id: int, result: str):
+        if result == 'win':
+            stmt = update(User).where(User.telegram_id == tg_id).values(win_game=User.win_game + 1, all_game=User.all_game + 1)
+            await self.session.execute(stmt)
+            await self.session.commit()
+        elif result == 'lose':
+            stmt = update(User).where(User.telegram_id == tg_id).values(lose_game=User.lose_game + 1, all_game=User.all_game + 1)
+            await self.session.execute(stmt)
+            await self.session.commit()
+        elif result == 'draw':
+            stmt = update(User).where(User.telegram_id == tg_id).values(draw_game=User.draw_game + 1, all_game=User.all_game + 1)
+            await self.session.execute(stmt)
+            await self.session.commit()
 
 ================================================================================
 КОНЕЦ ФАЙЛА: database/repository_db.py
@@ -450,11 +467,71 @@ async def set_main_menu(bot: Bot):
         BotCommand(command="/start", description="Запустить бота"),
         BotCommand(command="/help", description="Получить помощь"),
         BotCommand(command="/cancel", description="Отменить текущее действие"),
+        BotCommand(command="/game", description= 'Начать игру')
     ]
     await bot.set_my_commands(main_menu_commands)
 
 ================================================================================
 КОНЕЦ ФАЙЛА: keyboards/menu.py
+================================================================================
+
+
+================================================================================
+ФАЙЛ: /Users/ilasavin/VSCProjects/Bot_roll_dice/keyboards/keyb_game.py
+ОТНОСИТЕЛЬНЫЙ ПУТЬ: keyboards/keyb_game.py
+================================================================================
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+def get_game_keyboard():
+    '''Клавиатура для игры в кости'''
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text='Больше ⬆️', callback_data='roll_higher')],
+            [InlineKeyboardButton(text='Меньше ⬇️', callback_data='roll_lower')],
+            [InlineKeyboardButton(text='Одинаково 🟰', callback_data='roll_equal')]
+        ]
+    )
+
+    return keyboard
+
+def roll_dice_keyboard():
+    """Клавиатура для броска кубика"""
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text='Бросить кубик 🎲', callback_data='roll_dice')]
+        ]
+    )
+    return keyboard
+
+def play_again_keyboard():
+    '''Клавитура для повтроной игры'''
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text='Да', callback_data='play_again')],
+            [InlineKeyboardButton(text='Нет', callback_data='stop_game')]
+        ]
+    )
+
+    return keyboard
+
+================================================================================
+КОНЕЦ ФАЙЛА: keyboards/keyb_game.py
+================================================================================
+
+
+================================================================================
+ФАЙЛ: /Users/ilasavin/VSCProjects/Bot_roll_dice/db_redis/redis_serv.py
+ОТНОСИТЕЛЬНЫЙ ПУТЬ: db_redis/redis_serv.py
+================================================================================
+from redis.asyncio import Redis
+from config import Config
+
+config = Config()
+# Создаем асинхронное соединение с Redis
+redis_db = Redis(host=config.REDIS_HOST, port=config.REDIS_PORT, db=0, decode_responses=True)
+
+================================================================================
+КОНЕЦ ФАЙЛА: db_redis/redis_serv.py
 ================================================================================
 
 
@@ -496,6 +573,7 @@ class DatabaseMiddleware(BaseMiddleware):
 ================================================================================
 from database.models import User
 from database.repository_db import UserRepository
+from sqlalchemy import update
 
 class UserService:
     '''Сервис для работы с пользователем'''
@@ -510,10 +588,28 @@ class UserService:
             return True, user
         await self.user_repo.add_user(tg_id, username=user_name)
         return False, None
-        
+
 
 ================================================================================
 КОНЕЦ ФАЙЛА: service/serv_user_db.py
+================================================================================
+
+
+================================================================================
+ФАЙЛ: /Users/ilasavin/VSCProjects/Bot_roll_dice/service/game_service.py
+ОТНОСИТЕЛЬНЫЙ ПУТЬ: service/game_service.py
+================================================================================
+from random import randint
+
+class Roll_dice:
+    @staticmethod
+    def roll():
+        roll_1 = randint(1, 6)
+        roll_2 = randint(1, 6)
+        return roll_1, roll_2
+
+================================================================================
+КОНЕЦ ФАЙЛА: service/game_service.py
 ================================================================================
 
 
@@ -523,14 +619,16 @@ class UserService:
 ================================================================================
 from aiogram import Router
 
-from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import default_state, State, StatesGroup
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 from service.serv_user_db import UserService
+from service.game_service import Roll_dice
 from database.repository_db import UserRepository
+from keyboards.keyb_game import get_game_keyboard, roll_dice_keyboard, play_again_keyboard
+from db_redis.redis_serv import redis_db
 import logging
 
 
@@ -539,21 +637,140 @@ router = Router()
 
 class FSMGame(StatesGroup):
     '''Состояния для игры в кости'''
-    waiting_for_roll = State() # ожидание броска кубика
+    in_game = State() # ожидание броска кубика
 
     
 
 @router.message(CommandStart(), StateFilter(default_state))
-async def start_game(message: Message, state: FSMContext, session: AsyncSession):
+async def start_bot(message: Message, state: FSMContext, session: AsyncSession):
     user_rep = UserRepository(session) # передаем сессию в класс с методами работой функции
     user_serv = UserService(user_rep) # передаем методы работа в сервис (помошника в упрощении логики)
 
-    creat, user = await user_serv.register(message.from_user_id, message.from_user.username)
+    created, user = await user_serv.register(message.from_user.id, message.from_user.username)
 
-    if creat:
-        message.answer(f"Рад приветствовать Вас снова, {user.username}")
+    if created:
+        await message.answer(f"Рад приветствовать Вас снова, {user.username}\n"
+                             f"Для начала игры 🎮 введите команду /game")
     else:
-        message.answer(f"Рад приветстовать Вас впервые !")
+        await message.answer(f"Рад приветстовать Вас впервые !\n"
+                             f"Для начала игры 🎮 введите команду /game")
+
+
+@router.message(CommandStart(), ~StateFilter(default_state))
+async def start_bot(message: Message, state: FSMContext):
+    '''Команда для начала игры, если игрок уже в игре'''
+    await message.answer(f"Вы уже начали игру, что бы отменить её введите команду /cancel")
+
+
+@router.message(Command(commands = 'cancel'), StateFilter(default_state))
+async def cancel_game(message: Message, state: FSMContext):
+    '''Команда для команды cancel вне игры'''
+    await message.answer(f"Вы не начали игру, что бы её отменить. Для начала игры введите команду /game")
+
+
+@router.message(Command(commands = 'cancel'), ~StateFilter(default_state))
+async def cancel_game(message: Message, state: FSMContext):
+    '''Команда для отмены игры'''
+    await message.answer(f"Вы отменили игру.\n Для начала новой введите /game")
+    await state.clear()
+
+
+@router.callback_query(lambda c: c.data == 'play_again', StateFilter(default_state))
+@router.message(Command(commands = 'game'), StateFilter(default_state))
+async def start_game(event: Message | CallbackQuery, state: FSMContext):
+    '''Команда для начала игры'''
+    if isinstance(event, Message):
+        await event.edit_text(f"Игры началась! 🎲\n"
+                         f"Как вы думаете, Вы выбросите больше опонента ?",
+                         reply_markup = get_game_keyboard())
+    else:
+        await event.message.answer(f"Игры началась! 🎲\n"
+                         f"Как вы думаете, Вы выбросите больше опонента ?",
+                         reply_markup = get_game_keyboard())
+    # Перевод игрока в состояние игры
+    await state.set_state(FSMGame.in_game)
+
+
+@router.message(Command(commands = 'game'), ~StateFilter(default_state))
+async def start_game(message: Message, state: FSMContext):
+    '''Команда для начала новой игры, если игрок уже в игре'''
+    await message.answer(f"Вы уже начали игру! 🎲\n"
+                         f"Если хотите начать новую игру, отмените текущую командой /cancel")
+    
+
+@router.callback_query(lambda c: c.data in ['roll_higher', 'roll_lower', 'roll_equal'], StateFilter(FSMGame.in_game))
+async def roll_higher(callback: CallbackQuery, state: FSMContext):
+    '''Обработка выбора'''
+    roll_1, roll_2 = Roll_dice.roll() # бросок кубика опонента
+    choice_game = callback.data # выбор игрока
+    # сохранение выбора игрока
+    await redis_db.hset(f"game_choise:{callback.from_user.id}",
+                          mapping={"choise":f"{choice_game}"}
+                        ) # сохраняем выбор игрока в Redis 
+    await redis_db.expire(f"game_choise:{callback.from_user.id}", 600) # устанавливаем время жизни ключа 10 минут
+    
+    # сохранение броска оппонента
+    await redis_db.hset(f"opponent_choise:{callback.from_user.id}",
+                         mapping={"roll":roll_1 + roll_2}
+                        )
+    await redis_db.expire(f"opponent_choise:{callback.from_user.id}", 600) # устанавливаем время жизни ключа 10 минут
+
+    await callback.message.edit_text(f"Вы думаете, что выбросите {'больше' if choice_game == 'roll_higher' else 'меньше' if choice_game == 'roll_lower' else 'как у'} опонента!\n"
+                          "Ваш опонент бросает кубик...\n"
+                          f"Опонент выбросил {roll_1} и {roll_2} (сумма: {roll_1 + roll_2})\n"
+                          f"Ваш черед !",
+                          reply_markup = roll_dice_keyboard())
+
+
+@router.callback_query(lambda c: c.data == 'roll_dice', StateFilter(FSMGame.in_game))
+async def roll_dice(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    '''Обработка кнопки бросить кубик и получение результата'''
+    roll_1, roll_2 = Roll_dice.roll()
+    user_rep = UserRepository(session) # передаем сессию в класс с методами работой функции
+
+    # сохранение броска игрока
+    await redis_db.hset(f"game_choise:{callback.from_user.id}",
+                         mapping={"roll":roll_1 + roll_2}
+                        )
+    await redis_db.expire(f"game_choise:{callback.from_user.id}", 120) # устанавливаем время жизни ключа 2 минуты
+
+    roll_oponenta = await redis_db.hget(f"opponent_choise:{callback.from_user.id}", "roll")
+    roll_igroka = await redis_db.hget(f"game_choise:{callback.from_user.id}", "roll")
+    choise_igroka = await redis_db.hget(f"game_choise:{callback.from_user.id}", "choise")
+    
+    if (int(roll_igroka) > int(roll_oponenta) and choise_igroka == 'roll_higher') or (int(roll_igroka) < int(roll_oponenta) and choise_igroka == 'roll_lower') or (int(roll_igroka) == int(roll_oponenta) and choise_igroka == 'roll_equal'):
+        # логика для базы данных
+        user_rep.update_game_static(callback.from_user.id, 'win')
+        
+        await callback.message.edit_text(f"Вы выбросили {roll_1} и {roll_2} (сумма: {roll_1 + roll_2})\n"
+                                    f"Вы победили !"
+                                    f"Хоите сыграть еще ?",
+                                    reply_markup = play_again_keyboard())
+    else:
+        # логика для базы данных
+        user_rep.update_game_static(callback.from_user.id, 'lose')
+
+        await callback.message.edit_text(f"Вы выбросили {roll_1} и {roll_2} (сумма: {roll_1 + roll_2})\n"
+                                    f"К сожалению Вы проиграли ( :с \n "
+                                    f"Хоите сыграть еще ?",
+                                    reply_markup = play_again_keyboard())
+    
+    await state.clear() # очищаем состояние
+    await redis_db.delete(f"game_choise:{callback.from_user.id}") # удаляем ключ для игрока
+    await redis_db.delete(f"opponent_choise:{callback.from_user.id}") # удаляем ключ для оппонента
+
+
+@router.callback_query(lambda c: c.data == 'stop_game', StateFilter(default_state))
+async def stop_game(callback: CallbackQuery, state: FSMContext):
+    await callback.message.answer("Спасибо за игру !\n" \
+                                  "Для начала новой введите /game")
+    await state.clear()
+    await redis_db.delete(f"game_choise:{callback.from_user.id}") # удаляем ключ для игрока
+    await redis_db.delete(f"opponent_choise:{callback.from_user.id}") # удаляем ключ для оппонента
+    
+
+
+
 
 ================================================================================
 КОНЕЦ ФАЙЛА: handlers/hand_game.py

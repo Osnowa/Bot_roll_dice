@@ -4,11 +4,13 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
 )
 from database.models import Base
-from config import DATABASE_URL
+from config import Config
+
+config = Config()
 
 # Создаем асинхронный движок для подключения к базе данных
 engine = create_async_engine(
-    DATABASE_URL, # заменить на бд
+    f"postgresql+asyncpg://{config.POSTGRES_USER}:{config.POSTGRES_PASSWORD}@{config.DB_HOST}:{config.DB_PORT}/{config.POSTGRES_DB}", # заменить на бд
     pool_size=5, # кол-во соединений в пуле
     max_overflow=10, # кол-во дополнительных соединений, которые могут быть созданы при превышении размера пула
     pool_pre_ping=True, # проверка соединения перед использованием

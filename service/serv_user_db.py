@@ -1,5 +1,6 @@
 from database.models import User
 from database.repository_db import UserRepository
+from sqlalchemy import update
 
 class UserService:
     '''Сервис для работы с пользователем'''
@@ -14,4 +15,3 @@ class UserService:
             return True, user
         await self.user_repo.add_user(tg_id, username=user_name)
         return False, None
-        

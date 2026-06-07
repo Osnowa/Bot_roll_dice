@@ -10,6 +10,7 @@ from keyboards.menu import set_main_menu
 from database.db import create_tables, dispose_engine, SessionFactory
 from midleware.database import DatabaseMiddleware
 from handlers.hand_game import router as game_router
+from db_redis.redis_serv import redis_db
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +22,7 @@ async def main():
 
     config = Config()
 
-    redis = Redis(host='localhost', port=6379, db=0, decode_responses=True)
-    storage = RedisStorage(redis=redis)
+    storage = RedisStorage(redis=redis_db) # используем уже созданное соединение с Redis из redis_serv.py
 
     bot = Bot(token=config.BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
     dp = Dispatcher(storage=storage)

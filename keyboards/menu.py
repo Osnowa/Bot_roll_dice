@@ -6,5 +6,6 @@ async def set_main_menu(bot: Bot):
         BotCommand(command="/start", description="Запустить бота"),
         BotCommand(command="/help", description="Получить помощь"),
         BotCommand(command="/cancel", description="Отменить текущее действие"),
+        BotCommand(command="/game", description= 'Начать игру')
     ]
     await bot.set_my_commands(main_menu_commands)

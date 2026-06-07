@@ -23,5 +23,16 @@ class UserRepository:
         await self.session.commit()
         await self.session.refresh(user) # обновляем данные пользователся, что бы вставить id, который был сгенерирован
 
-    # Добавить методы для обновления игры
-    
+    async def update_game_static(self, tg_id: int, result: str):
+        if result == 'win':
+            stmt = update(User).where(User.telegram_id == tg_id).values(win_game=User.win_game + 1, all_game=User.all_game + 1)
+            await self.session.execute(stmt)
+            await self.session.commit()
+        elif result == 'lose':
+            stmt = update(User).where(User.telegram_id == tg_id).values(lose_game=User.lose_game + 1, all_game=User.all_game + 1)
+            await self.session.execute(stmt)
+            await self.session.commit()
+        elif result == 'draw':
+            stmt = update(User).where(User.telegram_id == tg_id).values(draw_game=User.draw_game + 1, all_game=User.all_game + 1)
+            await self.session.execute(stmt)
+            await self.session.commit()
