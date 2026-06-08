@@ -7,6 +7,7 @@ from aiogram.types import Message, CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 from service.serv_user_db import UserService
 from service.game_service import Roll_dice
+from service.game_service_result import get_game_result
 from database.repository_db import UserRepository
 from keyboards.keyb_game import get_game_keyboard, roll_dice_keyboard, play_again_keyboard
 from db_redis.redis_serv import redis_db
@@ -30,21 +31,40 @@ async def start_bot(message: Message, state: FSMContext, session: AsyncSession):
     created, user = await user_serv.register(message.from_user.id, message.from_user.username)
 
     if created:
+        logger.info(f"Пользователь {message.from_user.username} найден в базе данных")
         await message.answer(f"Рад приветствовать Вас снова, {user.username}\n"
                              f"Для начала игры 🎮 введите команду /game")
     else:
+        logger.info(f"Пользователь {message.from_user.username} зарегистрирован в базе данных")
         await message.answer(f"Рад приветстовать Вас впервые !\n"
                              f"Для начала игры 🎮 введите команду /game")
 
 
 @router.message(CommandStart(), ~StateFilter(default_state))
-async def start_bot(message: Message, state: FSMContext):
+async def start_bot(message: Message):
     '''Команда для начала игры, если игрок уже в игре'''
     await message.answer(f"Вы уже начали игру, что бы отменить её введите команду /cancel")
 
 
+@router.message(Command(commands = 'statistic'), StateFilter(default_state))
+async def cancel_game(message: Message, session: AsyncSession):
+    '''Команда для команды статистика вне игры'''
+    user_rep = UserRepository(session)
+    us_st = await user_rep.get_static(message.from_user.id) 
+
+    await message.answer(f"Ваша статистика:\n"
+                         f"Всего игр: {us_st.all_game}\n"
+                         f"Выигрышных игр: {us_st.win_game}\n"
+                         f"Проигрышных игр: {us_st.lose_game}")
+    
+@router.message(Command(commands = 'statistic'), ~StateFilter(default_state))
+async def cancel_game(message: Message):
+    '''Команда для команды статистика вне игры'''    
+    await message.answer(f"Вы еще в игре, статистика пока не доступна.")
+
+
 @router.message(Command(commands = 'cancel'), StateFilter(default_state))
-async def cancel_game(message: Message, state: FSMContext):
+async def cancel_game(message: Message):
     '''Команда для команды cancel вне игры'''
     await message.answer(f"Вы не начали игру, что бы её отменить. Для начала игры введите команду /game")
 
@@ -80,21 +100,21 @@ async def start_game(message: Message, state: FSMContext):
     
 
 @router.callback_query(lambda c: c.data in ['roll_higher', 'roll_lower', 'roll_equal'], StateFilter(FSMGame.in_game))
-async def roll_higher(callback: CallbackQuery, state: FSMContext):
+async def handle_player_choice(callback: CallbackQuery, state: FSMContext):
     '''Обработка выбора'''
     roll_1, roll_2 = Roll_dice.roll() # бросок кубика опонента
     choice_game = callback.data # выбор игрока
     # сохранение выбора игрока
-    await redis_db.hset(f"game_choise:{callback.from_user.id}",
-                          mapping={"choise":f"{choice_game}"}
+    await redis_db.hset(f"game_choice:{callback.from_user.id}",
+                          mapping={"choice":f"{choice_game}"}
                         ) # сохраняем выбор игрока в Redis 
-    await redis_db.expire(f"game_choise:{callback.from_user.id}", 600) # устанавливаем время жизни ключа 10 минут
+    await redis_db.expire(f"game_choice:{callback.from_user.id}", 600) # устанавливаем время жизни ключа 10 минут
     
     # сохранение броска оппонента
-    await redis_db.hset(f"opponent_choise:{callback.from_user.id}",
+    await redis_db.hset(f"opponent_choice:{callback.from_user.id}",
                          mapping={"roll":roll_1 + roll_2}
                         )
-    await redis_db.expire(f"opponent_choise:{callback.from_user.id}", 600) # устанавливаем время жизни ключа 10 минут
+    await redis_db.expire(f"opponent_choice:{callback.from_user.id}", 600) # устанавливаем время жизни ключа 10 минут
 
     await callback.message.edit_text(f"Вы думаете, что выбросите {'больше' if choice_game == 'roll_higher' else 'меньше' if choice_game == 'roll_lower' else 'как у'} опонента!\n"
                           "Ваш опонент бросает кубик...\n"
@@ -108,46 +128,48 @@ async def roll_dice(callback: CallbackQuery, state: FSMContext, session: AsyncSe
     '''Обработка кнопки бросить кубик и получение результата'''
     roll_1, roll_2 = Roll_dice.roll()
     user_rep = UserRepository(session) # передаем сессию в класс с методами работой функции
+    user_serv = UserService(user_rep)
 
     # сохранение броска игрока
-    await redis_db.hset(f"game_choise:{callback.from_user.id}",
+    await redis_db.hset(f"game_choice:{callback.from_user.id}",
                          mapping={"roll":roll_1 + roll_2}
                         )
-    await redis_db.expire(f"game_choise:{callback.from_user.id}", 120) # устанавливаем время жизни ключа 2 минуты
+    await redis_db.expire(f"game_choice:{callback.from_user.id}", 120) # устанавливаем время жизни ключа 2 минуты
 
-    roll_oponenta = await redis_db.hget(f"opponent_choise:{callback.from_user.id}", "roll")
-    roll_igroka = await redis_db.hget(f"game_choise:{callback.from_user.id}", "roll")
-    choise_igroka = await redis_db.hget(f"game_choise:{callback.from_user.id}", "choise")
+    roll_oponenta = await redis_db.hget(f"opponent_choice:{callback.from_user.id}", "roll")
+    roll_igroka = await redis_db.hget(f"game_choice:{callback.from_user.id}", "roll")
+    choice_igroka = await redis_db.hget(f"game_choice:{callback.from_user.id}", "choice")
     
-    if (int(roll_igroka) > int(roll_oponenta) and choise_igroka == 'roll_higher') or (int(roll_igroka) < int(roll_oponenta) and choise_igroka == 'roll_lower') or (int(roll_igroka) == int(roll_oponenta) and choise_igroka == 'roll_equal'):
+    result = get_game_result(int(roll_igroka), int(roll_oponenta), choice_igroka)
         # логика для базы данных
-        await user_rep.update_game_static(callback.from_user.id, 'win')
+    if result == 'win':
+        await user_serv.process_game_result(callback.from_user.id, 'win')
 
-        await callback.message.edit_text(f"Вы выбросили {roll_1} и {roll_2} (сумма: {roll_1 + roll_2})\n"
-                                    f"Вы победили !"
-                                    f"Хоите сыграть еще ?",
+        await callback.message.edit_text(f"Вы выбросили {roll_1} и {roll_2} (сумма: {roll_1 + roll_2})\n\n"
+                                    f"<b>Вы победили ! </b>🏆\n\n"
+                                    f"Хоите сыграть еще ? 😏",
                                     reply_markup = play_again_keyboard())
     else:
         # логика для базы данных
-        await user_rep.update_game_static(callback.from_user.id, 'lose')
+        await user_serv.process_game_result(callback.from_user.id, 'lose')
 
-        await callback.message.edit_text(f"Вы выбросили {roll_1} и {roll_2} (сумма: {roll_1 + roll_2})\n"
-                                    f"К сожалению Вы проиграли ( :с \n "
-                                    f"Хоите сыграть еще ?",
+        await callback.message.edit_text(f"Вы выбросили {roll_1} и {roll_2} (сумма: {roll_1 + roll_2})\n\n"
+                                    f"<b>К сожалению Вы проиграли 😔 </b>\n\n "
+                                    f"Хоите сыграть еще ? 😏",
                                     reply_markup = play_again_keyboard())
     
     await state.clear() # очищаем состояние
-    await redis_db.delete(f"game_choise:{callback.from_user.id}") # удаляем ключ для игрока
-    await redis_db.delete(f"opponent_choise:{callback.from_user.id}") # удаляем ключ для оппонента
+    await redis_db.delete(f"game_choice:{callback.from_user.id}") # удаляем ключ для игрока
+    await redis_db.delete(f"opponent_choice:{callback.from_user.id}") # удаляем ключ для оппонента
 
 
 @router.callback_query(lambda c: c.data == 'stop_game', StateFilter(default_state))
 async def stop_game(callback: CallbackQuery, state: FSMContext):
-    await callback.message.answer("Спасибо за игру !\n" \
-                                  "Для начала новой введите /game")
+    await callback.message.edit_text("Спасибо за игру !\n" 
+                                     "Для начала новой введите /game")
     await state.clear()
-    await redis_db.delete(f"game_choise:{callback.from_user.id}") # удаляем ключ для игрока
-    await redis_db.delete(f"opponent_choise:{callback.from_user.id}") # удаляем ключ для оппонента
+    await redis_db.delete(f"game_choice:{callback.from_user.id}") # удаляем ключ для игрока
+    await redis_db.delete(f"opponent_choice:{callback.from_user.id}") # удаляем ключ для оппонента
     
 
 

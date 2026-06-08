@@ -15,3 +15,11 @@ class UserService:
             return True, user
         await self.user_repo.add_user(tg_id, username=user_name)
         return False, None
+
+    async def process_game_result(self, tg_id, result):
+        if result == 'win':
+            await self.user_repo.update_game_st_win(tg_id)
+        elif result == 'lose':
+            await self.user_repo.update_game_st_lose(tg_id)
+        elif result == 'draw':
+            await self.user_repo.update_game_st_draw(tg_id)
