@@ -16,3 +16,11 @@ class Config:
     DB_PORT: int = env.int("DB_PORT")
     REDIS_HOST: str = env.str("REDIS_HOST")
     REDIS_PORT: int = env.int("REDIS_PORT")
+
+@dataclass
+class Config_game:
+    '''Конфигурация очков игры'''
+    score_game: int = 100
+    score_win: int = score_game * 2
+    score_win_draw: int = score_game * 3
+    score_win_three_a_row: int = score_game * 10
