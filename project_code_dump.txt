@@ -37,6 +37,13 @@ class Config:
     REDIS_HOST: str = env.str("REDIS_HOST")
     REDIS_PORT: int = env.int("REDIS_PORT")
 
+@dataclass
+class Config_game:
+    '''Конфигурация очков игры'''
+    score_game: int = 100
+    score_win: int = score_game * 2
+    score_win_draw: int = score_game * 3
+
 
 ================================================================================
 КОНЕЦ ФАЙЛА: config.py
@@ -289,6 +296,7 @@ from keyboards.menu import set_main_menu
 from database.db import create_tables, dispose_engine, SessionFactory
 from midleware.database import DatabaseMiddleware
 from handlers.hand_game import router as game_router
+from handlers.hand_command import router as command_router
 from db_redis.redis_serv import redis_db
 
 logger = logging.getLogger(__name__)
@@ -308,6 +316,7 @@ async def main():
 
     # Регистрируем роутеры
     dp.include_router(game_router) # роутер для игры в кости
+    dp.include_router(command_router) # роутер для команд
 
     # Регистрируем мидлвари 
     dp.update.middleware(DatabaseMiddleware(SessionFactory)) # мидлвари на каждое обновление, 
@@ -381,8 +390,8 @@ async def dispose_engine():
 ФАЙЛ: /Users/ilasavin/VSCProjects/Bot_roll_dice/database/models.py
 ОТНОСИТЕЛЬНЫЙ ПУТЬ: database/models.py
 ================================================================================
-from sqlalchemy import BigInteger, func, Integer
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy import BigInteger, Integer, ForeignKey
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from datetime import datetime
 
 class Base(DeclarativeBase):
@@ -399,8 +408,18 @@ class User(Base):
     win_game: Mapped[int] = mapped_column(default=0) # выигранных игр
     lose_game: Mapped[int] = mapped_column(default=0) # проигранных игр
     draw_game: Mapped[int] = mapped_column(default=0) # ничьих игр
+    u_score: Mapped["User_score"] = relationship("User_score", back_populates="user", uselist=False)
 
 
+class User_score(Base):
+    '''Модель для хранения очков пользователей'''
+    __tablename__ = 'users_score'
+
+    id : Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True) # ключ пользователя
+    u_id : Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True) # связь с таблицей пользователей
+    score : Mapped[int] = mapped_column(Integer, default=1000) # очки по умолчанию 1000
+    user: Mapped["User"] = relationship("User", back_populates="u_score")
+    
 
 ================================================================================
 КОНЕЦ ФАЙЛА: database/models.py
@@ -412,8 +431,9 @@ class User(Base):
 ОТНОСИТЕЛЬНЫЙ ПУТЬ: database/repository_db.py
 ================================================================================
 from sqlalchemy import select, update
-from database.models import User
+from database.models import User, User_score
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 import logging
 
 logger = logging.getLogger(__name__)
@@ -424,12 +444,15 @@ class UserRepository:
         # передаем сессию в конструктор, что бы не создавать ее каждый раз при работе с базой данных
         self.session = session
 
-    async def get_user(self, tg_id: int):
+    async def get_user(self, tg_id: int) -> User | None:  
         """Получить пользователя по id Telegram"""
-        stmt = select(User).where(User.telegram_id == tg_id)
+        stmt = (
+        select(User)
+        .options(selectinload(User.u_score)) # загружаем связанный объект в запросе
+        .where(User.telegram_id == tg_id)
+        )
         result = await self.session.execute(stmt) # выполняем запрос к базе данных
-        user = result.scalar_one_or_none() # либо одного пользователя, либо None
-        return user
+        return result.scalar_one_or_none() # либо одного пользователя, либо None
 
     async def add_user(self, tg_id: int, username: str = None):
         """Добавить пользователя"""
@@ -437,6 +460,7 @@ class UserRepository:
         self.session.add(user)
         await self.session.commit()
         await self.session.refresh(user) # обновляем данные пользователся, что бы вставить id, который был сгенерирован
+
 
     async def update_game_st_win(self, tg_id:int):
         stmt = update(User).where(User.telegram_id == tg_id).values(win_game=User.win_game + 1, all_game=User.all_game + 1)
@@ -453,7 +477,6 @@ class UserRepository:
         await self.session.execute(stmt)
         await self.session.commit()
 
-
     async def get_static(self, tg_id: int):
         '''Получаем статистику игрока'''
         stmt = select(User).where(User.telegram_id == tg_id)
@@ -461,6 +484,27 @@ class UserRepository:
         user = result.scalar_one_or_none()
         logger.warning(user)
         return user
+    
+    async def add_score(self, user_id: int):
+        '''Создаем запись в таблице с очками пользователя'''
+        score = User_score(u_id=user_id)
+        self.session.add(score)
+        await self.session.commit()
+        await self.session.refresh(score) # обновляем данные пользователся, что бы вставить id, который был сгенерирован
+
+    async def get_score(self, user_id: int):
+        '''Получаем таблицу с очками пользователя'''
+        stmt = select(User_score).where(User_score.u_id == user_id)
+        result = await self.session.execute(stmt)
+        score = result.scalar_one_or_none()
+        return score
+    
+    async def update_score(self, user_id: int, sc_res: int):
+        stmt = update(User_score).where(User_score.u_id == user_id).values(score=User_score.score + sc_res)
+        await self.session.execute(stmt)
+        await self.session.commit()
+
+
 
 ================================================================================
 КОНЕЦ ФАЙЛА: database/repository_db.py
@@ -477,7 +521,7 @@ from aiogram.types import BotCommand
 async def set_main_menu(bot: Bot):
     main_menu_commands = [
         BotCommand(command="/start", description="Запустить бота"),
-        BotCommand(command="/help", description="Получить помощь"),
+        BotCommand(command="/help", description="Правила игры"),
         BotCommand(command="/cancel", description="Отменить текущее действие"),
         BotCommand(command="/game", description= 'Начать игру'),
         BotCommand(command="/statistic", description= 'Посмотреть статистику')
@@ -605,6 +649,7 @@ def get_game_result(roll_igroka : int, roll_oponenta: int, choise_igroka: str) -
 from database.models import User
 from database.repository_db import UserRepository
 from sqlalchemy import update
+from config import Config_game
 
 class UserService:
     '''Сервис для работы с пользователем'''
@@ -616,17 +661,29 @@ class UserService:
         '''Регистрируем пользователя'''
         user =  await self.user_repo.get_user(tg_id)
         if user:
-            return True, user
-        await self.user_repo.add_user(tg_id, username=user_name)
-        return False, None
+            return True, user, user.u_score.score
+        
+        # если пользователя в базе данных нет
+        await self.user_repo.add_user(tg_id, username=user_name) # добавляем пользователя
 
-    async def process_game_result(self, tg_id, result):
+        user = await self.user_repo.get_user(tg_id)  # получаем пользователя
+        u_id = user.id # получаем id пользователя
+        await self.user_repo.add_score(u_id) # добавляем запись в таблицу с очками
+        score_us = await self.user_repo.get_score(u_id) # получаем очки
+        return False, None, score_us.score
+
+    async def process_game_result(self, tg_id: int, result: str, u_id: int):
+        cof_res = Config_game()
         if result == 'win':
-            self.user_repo.update_game_st_win(tg_id)
+            await self.user_repo.update_game_st_win(tg_id)
+            await self.user_repo.update_score(u_id, cof_res.score_win)
         elif result == 'lose':
-            self.user_repo.update_game_st_lose(tg_id)
+            await self.user_repo.update_game_st_lose(tg_id)
+            await self.user_repo.update_score(u_id, -cof_res.score_win)
         elif result == 'draw':
-            self.user_repo.update_game_st_draw(tg_id)
+            await self.user_repo.update_game_st_draw(tg_id)
+            await self.user_repo.update_score(u_id, cof_res.score_win_draw)
+
 
 ================================================================================
 КОНЕЦ ФАЙЛА: service/serv_user_db.py
@@ -652,6 +709,104 @@ class Roll_dice:
 
 
 ================================================================================
+ФАЙЛ: /Users/ilasavin/VSCProjects/Bot_roll_dice/handlers/hand_command.py
+ОТНОСИТЕЛЬНЫЙ ПУТЬ: handlers/hand_command.py
+================================================================================
+from aiogram import Router
+from aiogram.filters import Command, StateFilter, CommandStart
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import default_state
+from aiogram.types import Message, CallbackQuery
+from sqlalchemy.ext.asyncio import AsyncSession
+from database.repository_db import UserRepository
+from service.serv_user_db import UserService
+import logging
+
+router = Router()
+logger = logging.getLogger(__name__)
+
+
+@router.message(CommandStart(), StateFilter(default_state))
+async def start_bot(message: Message, session: AsyncSession):
+    user_rep = UserRepository(session) # передаем сессию в класс с методами работой функции
+    user_serv = UserService(user_rep) # передаем методы работа в сервис (помошника в упрощении логики)
+
+    # получаем состояние игрока (bool, User, очки)
+    created, user, score_user = await user_serv.register(message.from_user.id, message.from_user.username)
+
+    if created:
+        logger.info(f"Пользователь {message.from_user.username} найден в базе данных")
+        await message.answer(f"Рад приветствовать Вас снова, {user.username}\n"
+                             f"Ваши очки: {score_user}\n"
+                             f"Для начала игры 🎮 введите команду /game")
+    else:
+        logger.info(f"Пользователь {message.from_user.username} зарегистрирован в базе данных")
+        await message.answer(f"Рад приветстовать Вас впервые !\n"
+                             f"Ваши очки: {score_user}\n"
+                             f"Для начала игры 🎮 введите команду /game")
+
+
+@router.message(CommandStart(), ~StateFilter(default_state))
+async def start_bot(message: Message):
+    '''Команда для начала игры, если игрок уже в игре'''
+    await message.answer(f"Вы уже начали игру, что бы отменить её введите команду /cancel")
+
+
+@router.message(Command(commands = 'help'))
+async def command_help(message: Message):
+    await message.answer(f"Правила игры очень простые.\n"
+                         f"В начале Вам выдается 1000 очков.\n"
+                         f"Вы можете выбрать, будет ли на Ваших костях очков больше, меньше или столько же, как у оппонента.\n"
+                         f"Если Вы угадаете больше или меньше, Ваши очки удваиваются.\n"
+                         f"Если угадаете точно, Ваши очки утраиваются.\n"
+                         f"При обнулении очков, я пока не придумал =) "
+                         )
+    
+
+@router.message(Command(commands = 'statistic'), StateFilter(default_state))
+async def command_statistic(message: Message, session: AsyncSession):
+    '''Команда для команды статистика вне игры'''
+    user_rep = UserRepository(session)
+    us_st = await user_rep.get_static(message.from_user.id) 
+
+    await message.answer(f"Ваша статистика:\n"
+                         f"Всего игр: {us_st.all_game}\n"
+                         f"Выигрышных игр: {us_st.win_game}\n"
+                         f"Проигрышных игр: {us_st.lose_game}")
+    
+@router.message(Command(commands = 'statistic'), ~StateFilter(default_state))
+async def command_statistic(message: Message):
+    '''Команда для команды статистика вне игры'''    
+    await message.answer(f"Вы еще в игре, статистика пока не доступна.")
+
+
+@router.message(Command(commands = 'cancel'), StateFilter(default_state))
+async def cancel_game(message: Message):
+    '''Команда для команды cancel вне игры'''
+    await message.answer(f"Вы не начали игру, что бы её отменить. Для начала игры введите команду /game")
+
+
+@router.message(Command(commands = 'cancel'), ~StateFilter(default_state))
+async def cancel_game(message: Message, state: FSMContext):
+    '''Команда для отмены игры'''
+    await message.answer(f"Вы отменили игру.\n Для начала новой введите /game")
+    await state.clear()
+
+
+@router.message(Command(commands = 'game'), ~StateFilter(default_state))
+async def start_game(message: Message):
+    '''Команда для начала новой игры, если игрок уже в игре'''
+    await message.answer(f"Вы уже начали игру! 🎲\n"
+                         f"Если хотите начать новую игру, отмените текущую командой /cancel")
+    
+
+
+================================================================================
+КОНЕЦ ФАЙЛА: handlers/hand_command.py
+================================================================================
+
+
+================================================================================
 ФАЙЛ: /Users/ilasavin/VSCProjects/Bot_roll_dice/handlers/hand_game.py
 ОТНОСИТЕЛЬНЫЙ ПУТЬ: handlers/hand_game.py
 ================================================================================
@@ -671,6 +826,7 @@ from db_redis.redis_serv import redis_db
 import logging
 
 
+
 logger = logging.getLogger(__name__)
 router = Router()
 
@@ -679,59 +835,6 @@ class FSMGame(StatesGroup):
     in_game = State() # ожидание броска кубика
 
     
-
-@router.message(CommandStart(), StateFilter(default_state))
-async def start_bot(message: Message, state: FSMContext, session: AsyncSession):
-    user_rep = UserRepository(session) # передаем сессию в класс с методами работой функции
-    user_serv = UserService(user_rep) # передаем методы работа в сервис (помошника в упрощении логики)
-
-    created, user = await user_serv.register(message.from_user.id, message.from_user.username)
-
-    if created:
-        logger.info(f"Пользователь {message.from_user.username} найден в базе данных")
-        await message.answer(f"Рад приветствовать Вас снова, {user.username}\n"
-                             f"Для начала игры 🎮 введите команду /game")
-    else:
-        logger.info(f"Пользователь {message.from_user.username} зарегистрирован в базе данных")
-        await message.answer(f"Рад приветстовать Вас впервые !\n"
-                             f"Для начала игры 🎮 введите команду /game")
-
-
-@router.message(CommandStart(), ~StateFilter(default_state))
-async def start_bot(message: Message):
-    '''Команда для начала игры, если игрок уже в игре'''
-    await message.answer(f"Вы уже начали игру, что бы отменить её введите команду /cancel")
-
-
-@router.message(Command(commands = 'statistic'), StateFilter(default_state))
-async def cancel_game(message: Message, session: AsyncSession):
-    '''Команда для команды статистика вне игры'''
-    user_rep = UserRepository(session)
-    us_st = await user_rep.get_static(message.from_user.id) 
-
-    await message.answer(f"Ваша статистика:\n"
-                         f"Всего игр: {us_st.all_game}\n"
-                         f"Выигрышных игр: {us_st.win_game}\n"
-                         f"Проигрышных игр: {us_st.lose_game}")
-    
-@router.message(Command(commands = 'statistic'), ~StateFilter(default_state))
-async def cancel_game(message: Message):
-    '''Команда для команды статистика вне игры'''    
-    await message.answer(f"Вы еще в игре, статистика пока не доступна.")
-
-
-@router.message(Command(commands = 'cancel'), StateFilter(default_state))
-async def cancel_game(message: Message):
-    '''Команда для команды cancel вне игры'''
-    await message.answer(f"Вы не начали игру, что бы её отменить. Для начала игры введите команду /game")
-
-
-@router.message(Command(commands = 'cancel'), ~StateFilter(default_state))
-async def cancel_game(message: Message, state: FSMContext):
-    '''Команда для отмены игры'''
-    await message.answer(f"Вы отменили игру.\n Для начала новой введите /game")
-    await state.clear()
-
 
 @router.callback_query(lambda c: c.data == 'play_again', StateFilter(default_state))
 @router.message(Command(commands = 'game'), StateFilter(default_state))
@@ -749,15 +852,9 @@ async def start_game(event: Message | CallbackQuery, state: FSMContext):
     await state.set_state(FSMGame.in_game)
 
 
-@router.message(Command(commands = 'game'), ~StateFilter(default_state))
-async def start_game(message: Message, state: FSMContext):
-    '''Команда для начала новой игры, если игрок уже в игре'''
-    await message.answer(f"Вы уже начали игру! 🎲\n"
-                         f"Если хотите начать новую игру, отмените текущую командой /cancel")
-    
 
 @router.callback_query(lambda c: c.data in ['roll_higher', 'roll_lower', 'roll_equal'], StateFilter(FSMGame.in_game))
-async def roll_higher(callback: CallbackQuery, state: FSMContext):
+async def handle_player_choice(callback: CallbackQuery, state: FSMContext):
     '''Обработка выбора'''
     roll_1, roll_2 = Roll_dice.roll() # бросок кубика опонента
     choice_game = callback.data # выбор игрока
@@ -806,14 +903,23 @@ async def roll_dice(callback: CallbackQuery, state: FSMContext, session: AsyncSe
                                     f"<b>Вы победили ! </b>🏆\n\n"
                                     f"Хоите сыграть еще ? 😏",
                                     reply_markup = play_again_keyboard())
-    else:
+    elif result == 'lose':
         # логика для базы данных
-        await user_serv.process_game_result(callback.from_user.id, 'lose')
+        await user_serv.process_game_result(callback.from_user.id, 'lose', user_rep.get_user.id)
 
         await callback.message.edit_text(f"Вы выбросили {roll_1} и {roll_2} (сумма: {roll_1 + roll_2})\n\n"
                                     f"<b>К сожалению Вы проиграли 😔 </b>\n\n "
                                     f"Хоите сыграть еще ? 😏",
                                     reply_markup = play_again_keyboard())
+    elif result == 'draw':
+        # логика для базы данных
+        await user_serv.process_game_result(callback.from_user.id, 'draw')
+
+        await callback.message.edit_text(f"Вы выбросили {roll_1} и {roll_2} (сумма: {roll_1 + roll_2})\n\n"
+                                    f"<b>Вы смогли угадать опонента ! </b>\n\n "
+                                    f"Хоите сыграть еще ? 😏",
+                                    reply_markup = play_again_keyboard())
+
     
     await state.clear() # очищаем состояние
     await redis_db.delete(f"game_choice:{callback.from_user.id}") # удаляем ключ для игрока
