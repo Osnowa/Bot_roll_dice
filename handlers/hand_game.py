@@ -110,10 +110,10 @@ async def stop_game(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(lambda c: c.data == 'three_in_a_row', StateFilter(default_state))
 async def three_in_a_row(callback: CallbackQuery, state: FSMContext):
     '''Обработка кнопки старт игры 3 подряд'''    
-    await callback.message.edit_text(f"Добро подаловать в режим игры 3 подряд !\n"
+    await callback.message.edit_text("Добро подаловать в режим игры 3 подряд !\n"
                                      "Если не сможете 3 раза подряд выиграть у опонента, то Вам начисляется 1000 очков\n"
                                      "За проигрыш очки не снимаются\n"
-                                     f"Вы готовы ?",
+                                     "Вы готовы ?",
                                      reply_markup = start_game_three_a_row()
                                      ) # добавить клавиатуру на согласие игры 
 
@@ -133,7 +133,7 @@ async def play_three_a_row(callback: CallbackQuery, state: FSMContext):
                         )
 
     await callback.message.edit_text(f"Игры до 3️⃣ побед началась!  🎲\n"
-                         f"Как вы думаете, Вы выбросите больше опонента ?",
+                         "Как вы думаете, Вы выбросите больше опонента ?",
                          reply_markup = get_game_keyboard())
     
 

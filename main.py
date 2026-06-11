@@ -4,7 +4,6 @@ import logging
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.redis import RedisStorage
-from redis.asyncio import Redis
 from config import Config
 from keyboards.menu import set_main_menu
 from database.db import create_tables, dispose_engine, SessionFactory

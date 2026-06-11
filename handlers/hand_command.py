@@ -41,19 +41,19 @@ async def start_bot(message: Message, session: AsyncSession):
 @router.message(CommandStart(), ~StateFilter(default_state))
 async def start_bot(message: Message):
     '''Команда для начала игры, если игрок уже в игре'''
-    await message.answer(f"Вы уже начали игру, что бы отменить её введите команду /cancel")
+    await message.answer("Вы уже начали игру, что бы отменить её введите команду /cancel")
 
 @router.callback_query(lambda c: c.data == 'rules')
 @router.message(Command(commands = 'help'))
 async def command_help(event: Message | CallbackQuery):
     '''Для команды помощь'''
     if isinstance(event, Message):
-        await event.answer(f"Правила игры очень простые.\n"
-                         f"В начале Вам выдается 1000 очков.\n"
-                         f"Вы можете выбрать, будет ли на Ваших костях очков больше, меньше или столько же, как у оппонента.\n"
-                         f"Если Вы угадаете больше или меньше, Ваши очки удваиваются.\n"
-                         f"Если угадаете точно, Ваши очки утраиваются.\n"
-                         f"При обнулении очков, я пока не придумал =) "
+        await event.answer("Правила игры очень простые.\n"
+                         "В начале Вам выдается 1000 очков.\n"
+                         "Вы можете выбрать, будет ли на Ваших костях очков больше, меньше или столько же, как у оппонента.\n"
+                         "Если Вы угадаете больше или меньше, Ваши очки удваиваются.\n"
+                         "Если угадаете точно, Ваши очки утраиваются.\n"
+                         "При обнулении очков, я пока не придумал =) "
                          )
 
     elif isinstance(event, CallbackQuery):
@@ -94,27 +94,27 @@ async def command_statistic(event: Message| CallbackQuery, session: AsyncSession
 @router.message(Command(commands = 'statistic'), ~StateFilter(default_state))
 async def command_statistic(message: Message):
     '''Команда для команды статистика вне игры'''    
-    await message.answer(f"Вы еще в игре, статистика пока не доступна.")
+    await message.answer("Вы еще в игре, статистика пока не доступна.")
 
 
 @router.message(Command(commands = 'cancel'), StateFilter(default_state))
 async def cancel_game(message: Message):
     '''Команда для команды cancel вне игры'''
-    await message.answer(f"Вы не начали игру, что бы её отменить. Для начала игры введите команду /game")
+    await message.answer("Вы не начали игру, что бы её отменить. Для начала игры введите команду /game")
 
 
 @router.message(Command(commands = 'cancel'), ~StateFilter(default_state))
 async def cancel_game(message: Message, state: FSMContext):
     '''Команда для отмены игры'''
-    await message.answer(f"Вы отменили игру.\n Для начала новой введите /game")
+    await message.answer("Вы отменили игру.\n Для начала новой введите /game")
     await state.clear()
 
 
 @router.message(Command(commands = 'game'), ~StateFilter(default_state))
 async def start_game(message: Message):
     '''Команда для начала новой игры, если игрок уже в игре'''
-    await message.answer(f"Вы уже начали игру! 🎲\n"
-                         f"Если хотите начать новую игру, отмените текущую командой /cancel")
+    await message.answer("Вы уже начали игру! 🎲\n"
+                         "Если хотите начать новую игру, отмените текущую командой /cancel")
     
 
 @router.callback_query(lambda c: c.data in ['play_again', 'game'], StateFilter(default_state))
@@ -122,8 +122,8 @@ async def start_game(message: Message):
 async def start_game(event: Message | CallbackQuery, state: FSMContext):
     '''Команда для начала игры'''
     if isinstance(event, Message):
-        await event.answer(f"Игры началась! 🎲\n"
-                         f"Как вы думаете, Вы выбросите больше опонента ?",
+        await event.answer("Игры началась! 🎲\n"
+                         "Как вы думаете, Вы выбросите больше опонента ?",
                          reply_markup = get_game_keyboard())
     else:
         await event.message.edit_text(f"Игры началась! 🎲\n"
