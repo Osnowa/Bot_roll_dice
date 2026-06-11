@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import (
 from database.models import Base
 from config import Config
 
-config = Config()
+config = Config.from_env()
 
 # Создаем асинхронный движок для подключения к базе данных
 engine = create_async_engine(

@@ -21,7 +21,7 @@ async def main():
     
     logger.info("Старт бота")
 
-    config = Config()
+    config = Config.from_env()
 
     storage = RedisStorage(redis=redis_db) # используем уже созданное соединение с Redis из redis_serv.py
 
