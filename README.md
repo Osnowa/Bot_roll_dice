@@ -23,6 +23,7 @@
 * Pytest
 * GitHub Actions (CI)
 * Git
+* Mockerfile
 
 ## Особенности реализации
 
