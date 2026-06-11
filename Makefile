@@ -8,6 +8,6 @@ run:
 # make run
 
 test:
-	pytest
+	pytest --cov
 
 # make test

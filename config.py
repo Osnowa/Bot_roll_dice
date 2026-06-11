@@ -38,4 +38,4 @@ class Config_game:
     score_game: int = 100
     score_win: int = score_game * 2
     score_win_draw: int = score_game * 3
-    score_win_three_a_row: int = score_game * 10
+    score_win_three_in_a_row: int = score_game * 10
