@@ -6,3 +6,8 @@ run:
 	-- python main.py 
 
 # make run
+
+test:
+	pytest
+
+# make test

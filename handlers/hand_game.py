@@ -165,7 +165,7 @@ async def roll_dice(callback: CallbackQuery, state: FSMContext, session: AsyncSe
                              mapping={"attempt": int(attemp_num) + 1}
                             )
         
-        if int(attemp_num) == 3:
+        if int(attemp_num) >= 3:
             # зачисляем очки победителю
             await user_serv.process_game_result(callback.from_user.id, 'win_three_in_a_row',  us.id)
             await callback.message.edit_text(f"Вы выбросили {roll_1} и {roll_2} (сумма: {roll_1 + roll_2})\n\n"

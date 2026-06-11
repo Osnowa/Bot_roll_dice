@@ -16,7 +16,8 @@ class User(Base):
     win_game: Mapped[int] = mapped_column(default=0) # выигранных игр
     lose_game: Mapped[int] = mapped_column(default=0) # проигранных игр
     draw_game: Mapped[int] = mapped_column(default=0) # ничьих игр
-    u_score: Mapped["User_score"] = relationship("User_score", back_populates="user", uselist=False)
+    u_score: Mapped["User_score"] = relationship("User_score", back_populates="user", uselist=False) # связь с таблицей очков, этой колонки на самом деле нет
+
 
 
 class User_score(Base):

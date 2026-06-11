@@ -1,6 +1,4 @@
-from database.models import User
 from database.repository_db import UserRepository
-from sqlalchemy import update
 from config import Config_game
 
 class UserService:

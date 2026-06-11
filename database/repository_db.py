@@ -31,16 +31,19 @@ class UserRepository:
 
 
     async def update_game_st_win(self, tg_id:int):
+        '''Добавляем победу в статистику игрока'''
         stmt = update(User).where(User.telegram_id == tg_id).values(win_game=User.win_game + 1, all_game=User.all_game + 1)
         await self.session.execute(stmt)
         await self.session.commit()
 
     async def update_game_st_lose(self, tg_id:int):
+        '''Добавляем поражение в статистику игрока'''
         stmt = update(User).where(User.telegram_id == tg_id).values(lose_game=User.lose_game + 1, all_game=User.all_game + 1)
         await self.session.execute(stmt)
         await self.session.commit()
 
     async def update_game_st_draw(self, tg_id:int):
+        '''Добавляем ничью в статистику игрока'''
         stmt = update(User).where(User.telegram_id == tg_id).values(draw_game=User.draw_game + 1, all_game=User.all_game + 1)
         await self.session.execute(stmt)
         await self.session.commit()
@@ -62,7 +65,7 @@ class UserRepository:
         await self.session.commit()
         await self.session.refresh(score) # обновляем данные пользователся, что бы вставить id, который был сгенерирован
 
-    async def get_score(self, user_id: int):
+    async def get_score(self, user_id: int) -> User_score | None:
         '''Получаем таблицу с очками пользователя'''
         stmt = select(User_score).where(User_score.u_id == user_id)
         result = await self.session.execute(stmt)
@@ -70,6 +73,7 @@ class UserRepository:
         return score
     
     async def update_score(self, user_id: int, sc_res: int):
+        '''Обновляем очки в таблицу с очками пользователя'''
         stmt = update(User_score).where(User_score.u_id == user_id).values(score=User_score.score + sc_res)
         await self.session.execute(stmt)
         await self.session.commit()

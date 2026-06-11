@@ -17,4 +17,4 @@ build
 *.egg
 *.tar.gz
 *.whl
-
+.pytest_cache
